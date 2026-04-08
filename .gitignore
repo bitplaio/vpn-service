@@ -1,0 +1,24 @@
+# Environment files (contain secrets)
+.env
+*.key
+privatekey
+publickey
+
+# Claude Code session logs (private)
+.claude/sessions/
+
+# Backups
+backups/
+
+# WireGuard generated configs with real keys
+wireguard/peers/
+
+# Docker volumes (if mounted locally)
+volumes/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Deploy state (local tracking)
+.claude/docs/deploy-state.json

@@ -1,0 +1,57 @@
+services:
+  unbound:
+    image: mvance/unbound:latest
+    container_name: unbound
+    volumes:
+      - ./unbound/unbound.conf:/opt/unbound/etc/unbound/unbound.conf:ro
+    networks:
+      vpn-net:
+        ipv4_address: 10.2.0.100
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "drill @127.0.0.1 cloudflare.com > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+      - SERVERURL=${SERVERURL}
+      - SERVERPORT=${SERVERPORT:-443}
+      - PEERS=${PEERS:-1}
+      - PEERDNS=${PEERDNS:-10.2.0.100}
+      - INTERNAL_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}
+      - ALLOWEDIPS=0.0.0.0/0,::/0
+      - LOG_CONFS=true
+    volumes:
+      - wireguard-config:/config
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "${SERVERPORT:-443}:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      vpn-net:
+    depends_on:
+      unbound:
+        condition: service_healthy
+
+networks:
+  vpn-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.2.0.0/24
+
+volumes:
+  wireguard-config:
