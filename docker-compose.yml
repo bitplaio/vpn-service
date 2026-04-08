@@ -46,6 +46,42 @@ services:
       unbound:
         condition: service_healthy
 
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    environment:
+      - DOMAIN=https://vault.vpn
+      - SIGNUPS_ALLOWED=${SIGNUPS_ALLOWED:-true}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - LOG_LEVEL=info
+    volumes:
+      - vaultwarden-data:/data
+    networks:
+      vpn-net:
+        ipv4_address: 10.2.0.4
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      vpn-net:
+        ipv4_address: 10.2.0.3
+    restart: unless-stopped
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+
 networks:
   vpn-net:
     driver: bridge
@@ -55,3 +91,6 @@ networks:
 
 volumes:
   wireguard-config:
+  vaultwarden-data:
+  caddy-data:
+  caddy-config:
