@@ -4,122 +4,89 @@
 
 | Environment | Branch | Server Path | Compose File | Domain |
 |-------------|--------|-------------|--------------|--------|
-| dev | dev | ~/vpn-server | docker-compose.yml | localhost |
-| prod | main | /opt/vpn-server | docker-compose.prod.yml | (настроить домен) |
+| dev | dev | /root/vpn-server | docker-compose.yml | vault.halobolan.cc |
+| prod | main | /opt/vpn-server | docker-compose.prod.yml | vault.halobolan.cc |
+
+Dev and prod currently share the same droplet (157.230.98.224); prod compose is checked in for future split.
 
 ## Server Access
 
-- **SSH:** `ssh vpn` (configured in ~/.ssh/config)
+- **SSH:** `ssh vpn` (user `root`, key `~/key`)
 - **GitHub:** https://github.com/bitplaio/vpn-service.git
-- **Docker:** pre-installed on droplet
+- **Cloudflare Zero Trust:** team `bitplaio.cloudflareaccess.com`
 
 ## Docker Commands
 
 ### Dev
 ```bash
-docker compose up -d                    # Start all services
-docker compose down                     # Stop all services
-docker compose ps                       # Check status
-docker compose logs -f wireguard        # WireGuard logs
-docker compose logs -f vaultwarden      # Vaultwarden logs
-docker compose config                   # Validate config
+docker compose up -d
+docker compose down
+docker compose ps
+docker compose logs -f cloudflared      # tunnel connection logs
+docker compose logs -f vaultwarden
+docker compose config
 ```
 
 ### Prod
 ```bash
 docker compose -f docker-compose.prod.yml up -d
-docker compose -f docker-compose.prod.yml down
-docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f
 ```
 
-## Container Naming
+## Cloudflare Tunnel Management
 
-| Service | Container Name |
-|---------|---------------|
-| wireguard | vpn-wireguard |
-| vaultwarden | vpn-vaultwarden |
-| caddy | vpn-caddy |
+```bash
+# Tunnel connector logs (4 QUIC connections to CF edge expected)
+docker logs cloudflared --tail 50
+
+# Restart tunnel (token rotation, config change)
+docker compose restart cloudflared
+
+# Verify edge reachability
+curl -sI https://vault.halobolan.cc/alive | grep cf-ray
+```
+
+Tunnel config is managed in Cloudflare dashboard (Networks → Tunnels → vaultwarden):
+- Public hostname: `vault.halobolan.cc` → `http://vaultwarden:80`
+- Token lives in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`
 
 ## WireGuard Management
 
 ```bash
-# Show active peers and handshakes
-docker exec vpn-wireguard wg show
-
-# Generate keypair
-wg genkey | tee privatekey | wg pubkey > publickey
-
-# Add peer (use script)
+docker exec wireguard wg show
+docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
 ./scripts/add-peer.sh <peer-name>
-
-# Reload config without restart
-docker exec vpn-wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
-```
-
-## Log Viewing
-
-```bash
-# Last 100 lines of any service
-docker compose logs --tail=100 <service>
-
-# Follow logs in real-time
-docker compose logs -f <service>
-
-# System logs (host)
-journalctl -u docker -n 100
 ```
 
 ## Common Server Tasks
 
 ```bash
-# Health check
-curl -s http://localhost:8080/alive     # Vaultwarden health
-docker exec vpn-wireguard wg show      # WireGuard status
-
-# Resource usage
-docker stats --no-stream
-
-# Disk space (volumes)
-docker system df -v
+# Health
+curl -s http://localhost:80/alive       # vaultwarden (via container only)
+docker exec wireguard wg show
+docker logs cloudflared --tail 20 | grep 'Registered tunnel'
 
 # Backup Vaultwarden data
-./scripts/backup.sh
-```
-
-## Deploy State
-
-Deploy state is tracked in `.claude/docs/deploy-state.json` (created on first deploy).
-
-Format:
-```json
-{
-  "dev": {
-    "last_deploy": "ISO timestamp",
-    "commit": "git hash",
-    "services_rebuilt": ["list"],
-    "status": "ok|error"
-  },
-  "prod": { ... }
-}
+docker run --rm -v vpn-server_vaultwarden-data:/data -v ~/backups:/backup alpine \
+  tar czf /backup/vw-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
 ```
 
 ## Firewall Rules (Host)
 
-```bash
-# Required open ports:
-# 51820/udp — WireGuard VPN
-# 443/tcp   — Vaultwarden HTTPS (prod only)
-# 80/tcp    — Caddy HTTP->HTTPS redirect (prod only)
-# 22/tcp    — SSH (management)
+After CF Tunnel migration — only two inbound ports:
 
-# UFW example:
-ufw allow 51820/udp
-ufw allow 443/tcp
-ufw allow 80/tcp
-ufw allow 22/tcp
+```bash
+# Required:
+# 22/tcp    — SSH (rate-limited)
+# 443/udp   — WireGuard VPN
+
+# UFW state:
+ufw allow 51820/udp comment 'WireGuard VPN'  # or 443/udp if using port 443
+ufw limit 22/tcp
 ufw enable
 ```
+
+80/tcp and 443/tcp are deliberately **closed** — Vaultwarden is reached only through outbound CF Tunnel.
 
 ## Safety Rules
 
@@ -127,3 +94,5 @@ ufw enable
 - Never delete Docker volumes without backup
 - Always use `docker compose config` to validate before deploying
 - Keep WireGuard private keys ONLY in .env or wg0.conf (both gitignored)
+- Cloudflare Tunnel token is a secret — treat like a private key. If leaked, rotate by deleting+recreating the tunnel in CF dashboard.
+- CF Access policy must remain restricted to `/admin` only; opening it wider breaks Bitwarden Chrome extension and mobile clients (they cannot navigate the email-OTP browser flow).

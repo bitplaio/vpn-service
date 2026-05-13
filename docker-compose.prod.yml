@@ -53,7 +53,7 @@ services:
       - DOMAIN=https://vault.halobolan.cc
       - SIGNUPS_ALLOWED=${SIGNUPS_ALLOWED:-false}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
-      - LOG_LEVEL=info
+      - LOG_LEVEL=warn
       - WEBSOCKET_ENABLED=true
     volumes:
       - vaultwarden-data:/data
