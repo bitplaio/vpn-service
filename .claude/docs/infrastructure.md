@@ -71,6 +71,34 @@ docker run --rm -v vpn-server_vaultwarden-data:/data -v ~/backups:/backup alpine
   tar czf /backup/vw-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
 ```
 
+## Automatic Updates
+
+Daily unattended image update via `scripts/auto-update.sh` + host cron.
+
+- **Cron:** `0 4 * * * /root/vpn-server/scripts/auto-update.sh` (daily 04:00 server time)
+- **Scope:** updates **vaultwarden + cloudflared** only. WireGuard and Unbound are
+  deliberately excluded so routine updates never drop VPN sessions or peer DNS.
+- **Flow:** backup Vaultwarden volume → `docker compose pull` → `up -d` →
+  health check → prune dangling images → rotate backups (keeps last 7).
+- **Safety:** `flock` prevents overlapping runs; a failed backup aborts the update.
+- **Log:** `/var/log/vpn-auto-update.log`
+- **Backups:** auto runs write `~/backups/vw-auto-*.tar.gz`; manual/pre-deploy use `vw-*`.
+
+```bash
+# Run manually / on demand
+/root/vpn-server/scripts/auto-update.sh
+
+# Tail the update log
+tail -f /var/log/vpn-auto-update.log
+
+# Inspect / edit schedule
+crontab -l
+```
+
+Tunables via env (override before invoking): `SERVICES`, `KEEP_BACKUPS`, `BACKUP_DIR`,
+`COMPOSE_FILE`. Note: this intentionally relies on the `:latest` tag — daily `pull`
+is what keeps the stack current; every run backs up first as the safety net.
+
 ## Firewall Rules (Host)
 
 After CF Tunnel migration — only two inbound ports:
