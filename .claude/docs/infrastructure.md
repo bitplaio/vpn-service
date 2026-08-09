@@ -101,47 +101,28 @@ is what keeps the stack current; every run backs up first as the safety net.
 
 ## Firewall Rules (Host)
 
-Inbound ports after adding the parallel proxy stack:
+After CF Tunnel migration — only two inbound ports. Actual `ufw status` as verified
+on 2026-08-09:
 
-| Port | Service | Reachable from |
-|------|---------|----------------|
-| 443/udp | WireGuard | anywhere (ufw rule) |
-| 22/tcp | SSH | **only 10.2.0.0/24**, i.e. only through the WireGuard tunnel |
-| 8443/udp | Hysteria2 | anywhere (Docker DNAT) |
-| 443/tcp | Xray VLESS+REALITY | anywhere (Docker DNAT) |
+```
+443/udp   ALLOW IN   Anywhere            # WireGuard VPN
+22/tcp    ALLOW IN   10.2.0.0/24         # SSH only over the WireGuard tunnel
+```
 
-80/tcp remains free and closed. Vaultwarden is still reached only through the
-outbound CF Tunnel and publishes no inbound port.
+80/tcp and 443/tcp are deliberately **closed** — Vaultwarden is reached only through outbound CF Tunnel.
 
 ### SSH depends on WireGuard — read before touching either
 
-The SSH rule allows source `10.2.0.0/24` only. A connection arriving through the
-WireGuard tunnel is NATed to the wg container's docker address in that subnet, so
-it passes; a connection from the open internet does not. **If WireGuard stops, SSH
-access is lost** and the only way back in is the DigitalOcean web console. Never
-restart or reconfigure the wireguard service without that console at hand.
+SSH is **not** merely rate-limited; it is reachable only from `10.2.0.0/24`. A session
+arriving through the WireGuard tunnel is NATed to the wg container's address in that
+subnet and passes; a connection from the open internet does not. **If WireGuard stops,
+SSH access is lost** and the only way back in is the DigitalOcean web console.
 
-### ufw does not govern the container ports
-
-Docker publishes ports by inserting DNAT rules into the `DOCKER` chain, which is
-traversed **before** ufw's filter rules. `8443/udp` and `443/tcp` therefore became
-world-reachable the moment the containers started, regardless of ufw's
-default-deny policy. Adding `ufw allow 8443/udp` / `ufw allow 443/tcp` documents
-intent but changes nothing.
-
-Any real restriction on those two ports (rate limiting, source blocking, abuse
-response) must go into the **`DOCKER-USER`** iptables chain, which is evaluated
-before Docker's own rules:
-
-```bash
-# Example — drop a specific abusive source from the proxy ports
-iptables -I DOCKER-USER -s <addr> -p udp --dport 8443 -j DROP
-iptables -I DOCKER-USER -s <addr> -p tcp --dport 443  -j DROP
-```
-
-Access control for the proxies is otherwise enforced in-application: a Hysteria2
-password and per-device Xray UUIDs. There is no management panel on this box by
-design — one would add an authenticated web surface next to a password manager.
+Consequences for any future work:
+- Never `docker compose down` — it takes WireGuard with it. Stop services by name.
+- When bringing up individual services, pass `--no-deps` so compose cannot decide to
+  recreate wireguard as a dependency.
+- Have the DO web console open before restarting or reconfiguring wireguard.
 
 ## Safety Rules
 
