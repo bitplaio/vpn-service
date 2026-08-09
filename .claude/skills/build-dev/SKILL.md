@@ -13,11 +13,23 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
    git push origin dev
    ```
 
-2. **Pull on server (if remote):**
+2. **Pull on server:**
    ```bash
-   ssh vpn "cd /opt/vpn-server && git pull origin dev"
+   ssh vpn "cd ~/vpn-server && git pull --ff-only origin dev"
    ```
-   If local dev — skip this step.
+   Dev lives in `~/vpn-server` (i.e. `/root/vpn-server`). `/opt/vpn-server` does
+   NOT exist — prod has never been deployed.
+
+   **Check for divergence first.** On 2026-08-09 the server's checkout was sitting
+   four commits behind on the initial commit while the files on disk matched a much
+   later one, because configs had been copied in outside git. A blind pull fails or
+   clobbers. Verify before pulling:
+   ```bash
+   ssh vpn "cd ~/vpn-server && git status --short && git diff origin/dev --stat"
+   # and list untracked files that the pull would need to overwrite:
+   ssh vpn 'cd ~/vpn-server && git ls-tree -r --name-only origin/dev | while read f; do
+     [ -e "$f" ] && ! git ls-files --error-unmatch "$f" >/dev/null 2>&1 && echo "$f"; done'
+   ```
 
 3. **Read deploy state:**
    ```bash
