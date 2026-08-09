@@ -222,3 +222,12 @@ echo
 echo "Готово. Секреты в ./secrets (chmod 600), в git не попадают."
 echo "Ни одно значение намеренно не выведено на экран."
 echo "Дальше: ./scripts/gen-client-configs.sh — соберёт конфиги клиентов."
+echo
+echo "ВАЖНО при пересборке конфигов (--force):"
+echo "  docker compose restart НЕ подхватит новый файл. Bind-mount одиночного"
+echo "  файла привязан к inode, а перезапись создаёт новый — контейнер продолжит"
+echo "  читать старую версию. Наступали на это при откате DNS."
+echo "  Нужно именно пересоздание:"
+echo "     docker compose up -d --no-deps --force-recreate hysteria xray"
+echo "  Флаг --no-deps обязателен: без него compose может тронуть wireguard,"
+echo "  а SSH на этот сервер ходит только через его туннель."
