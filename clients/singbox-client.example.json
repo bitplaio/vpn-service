@@ -1,0 +1,89 @@
+{
+  "//": "ШАБЛОН клиентского конфига sing-box. Рабочие файлы clients/<устройство>-singbox.json собирает scripts/gen-client-configs.sh НА СЕРВЕРЕ и в git они не попадают.",
+  "//_схема": "Проверено против настоящего бинарника sing-box v1.13.18 командой `sing-box check`. Схема ломалась между 1.11/1.12/1.13 — старые руководства в сети дадут конфиг, который не запустится. Новый формат dns.servers ({type,tag,server}) и действия в route.rules (action: sniff / hijack-dns) обязательны.",
+  "//_маршрутизация": "ПОЛНЫЙ ТУННЕЛЬ по решению пользователя: route.final = select, никаких geosite/geoip-исключений. Весь трафик идёт через прокси, ни один адресат не видит реальный IP. Цена решения — географическая надбавка ~24 мс остаётся, и CDN отдаются из Франкфурта, а не из Вены.",
+  "//_apple": "На macOS и iOS одновременно может работать только один VPN-туннель: запуск второго NEPacketTunnelProvider молча гасит первый. WireGuard и этот профиль сосуществуют как переключаемые, но не как одновременные. На Android ограничения нет.",
+
+  "log": { "level": "warn", "timestamp": true },
+
+  "dns": {
+    "//": "DNS идёт через прокси в собственный unbound на сервере. Публичные резолверы не используются. ACL Hysteria2 и правила Xray специально пропускают 10.4.0.100:53 — без этого исключения резолвинг умер бы и это выглядело бы как «интернет не работает».",
+    "servers": [
+      { "type": "udp", "tag": "dns-proxy", "server": "10.4.0.100", "detour": "select" }
+    ],
+    "final": "dns-proxy",
+    "strategy": "ipv4_only",
+    "independent_cache": true
+  },
+
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": ["172.19.0.1/30"],
+      "auto_route": true,
+      "strict_route": true,
+      "//_stack": "system, а не gvisor: на iOS сетевые расширения жёстко ограничены 50 МБ памяти, и gvisor-стек упирается в этот лимит на высоких скоростях.",
+      "stack": "system"
+    },
+    {
+      "//": "Локальный SOCKS/HTTP нужен для A/B-замеров: он позволяет гнать curl через прокси, не поднимая TUN и не трогая системную маршрутизацию. Слушает только 127.0.0.1.",
+      "type": "mixed",
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "listen_port": 1080
+    }
+  ],
+
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "select",
+      "outbounds": ["hy2-fra", "reality-fra"],
+      "default": "hy2-fra"
+    },
+    {
+      "//": "Основной канал. Hysteria2 v2.12.1 — QUIC поверх UDP/8443, congestion control BBR (не Brutal).",
+      "type": "hysteria2",
+      "tag": "hy2-fra",
+      "server": "157.230.98.224",
+      "server_port": 8443,
+      "password": "REPLACE_HY2_PASSWORD",
+      "tls": {
+        "enabled": true,
+        "//_sni": "Случайное имя в зоне .invalid, генерируется вместе с сертификатом и лежит в secrets/hy2_sni.txt. DNS-записи для него нет и не нужно: подключаемся по IP, имя работает только как SNI и как CN пиннингуемого сертификата. Имя СОЗНАТЕЛЬНО не связано с halobolan.cc — в TLS 1.3 сообщение Certificate закрыто только от пассивного наблюдателя, поэтому любой активный сканер (Censys, Shodan) прочитал бы CN и связал прокси с доменом менеджера паролей.",
+        "server_name": "REPLACE_HY2_SNI",
+        "//_pin": "Сертификат самоподписанный, поэтому он встроен сюда целиком и проверяется по совпадению. insecure:true НЕ используется — MITM по-прежнему невозможен.",
+        "certificate": ["REPLACE_HY2_CERT_PEM_LINES"]
+      }
+    },
+    {
+      "//": "Запасной канал на TCP/443. Нужен, если UDP всё-таки шейпится: TCP такой шейпинг не затрагивает. Трафик неотличим от обычного TLS-соединения с www.zalando.de.",
+      "type": "vless",
+      "tag": "reality-fra",
+      "server": "157.230.98.224",
+      "server_port": 443,
+      "uuid": "REPLACE_UUID",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.zalando.de",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "reality": {
+          "enabled": true,
+          "public_key": "REPLACE_REALITY_PUBLIC_KEY",
+          "short_id": "REPLACE_SHORT_ID"
+        }
+      }
+    }
+  ],
+
+  "route": {
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" }
+    ],
+    "final": "select",
+    "auto_detect_interface": true
+  }
+}

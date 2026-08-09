@@ -1,0 +1,94 @@
+{
+  "//": "ШАБЛОН. Рабочий xray/config.json генерируется scripts/gen-proxy-secrets.sh НА СЕРВЕРЕ и в git не попадает.",
+  "//_образ": "ghcr.io/xtls/xray-core distroless: USER=65532, ENTRYPOINT=/usr/local/bin/xray, CMD=-confdir /usr/local/etc/xray/. Compose ОБЯЗАН переопределить command на -config, иначе этот файл не читается вообще и контейнер поднимется здоровым на дефолтном конфиге без REALITY.",
+  "//_клиенты": "С v26.3.27 сервер жёстко ставит minClientVer=26.3.27 и молча отвергает клиентов на более старом ядре. GUI-приложения часто везут отстающее ядро — при 'не подключается без внятной ошибки' проверять версию ядра клиента.",
+
+  "//_логи": "access намеренно НЕ указан — Xray пишет в stdout, и ротацией занимается docker json-file (max-size 10m, max-file 3). Файл в именованном томе рос бы без ограничений: образ distroless, logrotate внутри нет, а docker ротирует только stdout/stderr, но не файлы внутри контейнера.",
+  "log": {
+    "loglevel": "warning"
+  },
+
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          { "id": "REPLACE_UUID_MACBOOK", "flow": "xtls-rprx-vision", "email": "macbook" },
+          { "id": "REPLACE_UUID_IPHONE",  "flow": "xtls-rprx-vision", "email": "iphone"  },
+          { "id": "REPLACE_UUID_ANDROID", "flow": "xtls-rprx-vision", "email": "android" }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "target": "www.zalando.de:443",
+          "xver": 0,
+          "serverNames": ["www.zalando.de"],
+          "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
+          "shortIds": ["REPLACE_16_HEX_CHARS"]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
+      }
+    }
+  ],
+
+  "outbounds": [
+    { "tag": "direct", "protocol": "freedom", "settings": { "domainStrategy": "UseIPv4" } },
+    { "tag": "block",  "protocol": "blackhole" }
+  ],
+
+  "dns": {
+    "servers": ["10.4.0.100"],
+    "queryStrategy": "UseIPv4"
+  },
+
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "//": "Собственный unbound — единственный разрешённый приватный адрес. Правило обязано идти ДО блокировки geoip:private, иначе резолвинг умрёт и это будет выглядеть как 'интернет не работает'.",
+        "type": "field",
+        "ip": ["10.4.0.100/32"],
+        "port": 53,
+        "outboundTag": "direct"
+      },
+      {
+        "//": "БЕЗОПАСНОСТЬ. Приватные диапазоны перечислены ЯВНО, а не только через geoip:private: geoip.dat — сторонний набор данных, который обновляется вместе с образом и может измениться. Публичный IP дроплета добавлен отдельно, потому что geoip:private его НЕ покрывает, а ufw пускает 22/tcp из 10.2.0.0/24 — без этой строки прокси давал бы доступ к SSH.",
+        "type": "field",
+        "ip": [
+          "geoip:private",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "169.254.0.0/16",
+          "127.0.0.0/8",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10",
+          "157.230.98.224/32"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      }
+    ]
+  },
+
+  "policy": {
+    "levels": { "0": { "handshake": 3, "connIdle": 180 } },
+    "system": { "statsInboundUplink": false, "statsInboundDownlink": false }
+  }
+}

@@ -1,8 +1,24 @@
 # Environment files (contain secrets)
-.env
+# NB: bare `.env` does NOT match `.env.backup.*` — the glob below is what actually
+# protects the timestamped backups that get created before every .env edit.
+.env*
+!.env.example
 *.key
 privatekey
 publickey
+
+# Proxy configs — hold auth passwords, REALITY private key and the Cloudflare API token.
+# Only the .example templates are tracked.
+hysteria/config.yaml
+hysteria/certs/
+xray/config.json
+secrets/
+# Промежуточные файлы генератора содержат настоящие секреты. Ловушка в
+# render() их удаляет, но при падении процесса по SIGKILL — не успеет.
+hysteria/*.tmp
+xray/*.tmp
+clients/*.json
+!clients/*.example.json
 
 # Claude Code session logs (private)
 .claude/sessions/
