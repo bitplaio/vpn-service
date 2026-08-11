@@ -80,6 +80,9 @@ install_client() {
       -e "s|__TUNNEL_SUBNET__|$subnet|g" \
       "$HERE/$LABEL.plist" > "$PLIST"
 
+  # Truncate: stale errors from a previous layout otherwise show up in `status`.
+  : > "$CLIENT_LOG_DIR/probe.err"
+
   launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
   launchctl bootstrap "gui/$UID" "$PLIST"
   launchctl kickstart -k "gui/$UID/$LABEL"
