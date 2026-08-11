@@ -28,3 +28,4 @@ Thumbs.db
 
 # Deploy state (local tracking)
 .claude/docs/deploy-state.json
+__pycache__/

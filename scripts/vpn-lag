@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Mark "it is lagging right now" into the probe log.
+#
+#   vpn-lag                     # bare marker
+#   vpn-lag youtube буферит     # marker with a note
+#
+# The analyzer lines these up against the automatic samples from both sides,
+# so a subjective "тупит" gets matched to measured numbers within the same minute.
+set -euo pipefail
+
+LOG_DIR="${LOG_DIR:-$HOME/Library/Logs/vpn-probe}"
+mkdir -p "$LOG_DIR"
+
+note="${*:-}"
+ts=$(date +%s)
+day=$(date -u +%Y-%m-%d)
+iso=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+
+# JSON-escape the note: backslashes, quotes, control chars.
+esc=$(printf '%s' "$note" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+
+printf '{"t":"%s","ts":%s,"src":"mac","kind":"mark","note":%s}\n' \
+  "$iso" "$ts" "$esc" >> "$LOG_DIR/$day.jsonl"
+
+echo "отмечено: $(date '+%H:%M:%S')${note:+ — $note}"

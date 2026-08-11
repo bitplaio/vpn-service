@@ -11,7 +11,10 @@ Dev and prod currently share the same droplet (157.230.98.224); prod compose is 
 
 ## Server Access
 
-- **SSH:** `ssh vpn` (user `root`, key `~/key`)
+- **SSH:** `ssh vpn` (user `root`, key `~/.ssh/satoshihero-prod-20260809`)
+  Always use the `vpn` alias. `ssh root@157.230.98.224` bypasses the `Host vpn`
+  block in `~/.ssh/config` and therefore its `IdentityFile`, and fails with
+  `Permission denied (publickey)` even though access is fine.
 - **GitHub:** https://github.com/bitplaio/vpn-service.git
 - **Cloudflare Zero Trust:** team `bitplaio.cloudflareaccess.com`
 
@@ -50,20 +53,49 @@ Tunnel config is managed in Cloudflare dashboard (Networks → Tunnels → vault
 - Public hostname: `vault.halobolan.cc` → `http://vaultwarden:80`
 - Token lives in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`
 
+## Edge access control — vault is VPN-only
+
+Since 2026-08-10 a WAF custom rule blocks `vault.halobolan.cc` from every source
+except the VPN egress IP. Full rationale in `architecture.md`; operational notes:
+
+```bash
+# Verify from a VPN-connected machine — A/B without dropping the tunnel.
+# --interface <LAN-IP> routes around the tunnel on the same box.
+curl -s -o /dev/null -w "vpn=%{http_code}\n"  https://vault.halobolan.cc/alive
+curl -s -o /dev/null -w "open=%{http_code}\n" --interface "$(ipconfig getifaddr en0)" \
+     https://vault.halobolan.cc/alive
+# expected: vpn=200  open=403
+```
+
+Verified 2026-08-10 on `/`, `/alive`, `/api/config`, `/identity/accounts/prelogin`.
+A 403 carrying `server: cloudflare` and no application body means the edge blocked
+it before the tunnel. `/admin` still redirects to CF Access — the two layers stack.
+
+**Break-glass:** disable the rule in the Cloudflare dashboard. The dashboard is
+not behind the rule, so any device works. Needed if the droplet's public IP
+changes — the rule would then lock out the VPN as well.
+
 ## WireGuard Management
 
 ```bash
-docker exec wireguard wg show
+docker exec wireguard wg show                      # full dump prints peer endpoint IPs — avoid
+docker exec wireguard wg show wg0 latest-handshakes
 docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
-./scripts/add-peer.sh <peer-name>
 ```
+
+Peers are added by raising `PEERS` in `.env` and recreating the container — the
+linuxserver image regenerates configs itself. There is no `add-peer.sh`.
+Note that **any** change to `PEERS` re-renders configs from
+`/config/templates/{server,peer}.conf`, wiping hand edits to the live files;
+MTU and MSS-clamp are already mirrored into those templates.
 
 ## Common Server Tasks
 
 ```bash
 # Health
-curl -s http://localhost:80/alive       # vaultwarden (via container only)
-docker exec wireguard wg show
+curl -s http://10.2.0.4/alive           # vaultwarden — port 80 is NOT published
+                                        # on the host, so localhost:80 fails
+docker exec wireguard wg show wg0 latest-handshakes
 docker logs cloudflared --tail 20 | grep 'Registered tunnel'
 
 # Backup Vaultwarden data
@@ -99,6 +131,54 @@ Tunables via env (override before invoking): `SERVICES`, `KEEP_BACKUPS`, `BACKUP
 `COMPOSE_FILE`. Note: this intentionally relies on the `:latest` tag — daily `pull`
 is what keeps the stack current; every run backs up first as the safety net.
 
+## Telemetry — who connected, and where the lag was (2026-08-10)
+
+Two collectors write JSONL, one line per sample; `vpn-analyze.py` joins them.
+
+| Where | What | Cadence | Log |
+|-------|------|---------|-----|
+| droplet | `scripts/vpn-telemetry.py` via cron | 6 samples/min | `/var/log/vpn-telemetry/YYYY-MM-DD.jsonl` |
+| Mac | `scripts/vpn-probe.py` via launchd | every 20 s | `~/Library/Logs/vpn-probe/YYYY-MM-DD.jsonl` |
+
+Both keep 14 days and rotate themselves.
+
+```bash
+scripts/vpn-telemetry-install.sh server    # cron on the droplet
+scripts/vpn-telemetry-install.sh client    # launchd agent + ~/bin/vpn-lag
+scripts/vpn-telemetry-install.sh status    # both sides
+scripts/vpn-telemetry-install.sh stop      # unload the Mac agent
+
+scripts/vpn-analyze.py                     # today's report, pulls server log over ssh
+scripts/vpn-analyze.py --date 2026-08-11
+~/bin/vpn-lag youtube буферит              # mark a lag while it happens
+```
+
+**Server side** identifies devices by tunnel IP via `peer-labels.conf`
+(`10.13.13.2=mac`, `10.13.13.3=phone`) and records per-peer handshake age and
+up/down rate, load/steal/conntrack, wg0 error+drop deltas, DNS latency and
+uplink RTT/loss.
+
+**Client side** measures three ping legs every sample — Mac→router, Mac→droplet
+outside the tunnel, Mac→10.13.13.1 inside it — plus DNS and HTTP TTFB. Which leg
+degrades is what assigns blame: router → Wi-Fi, outside-tunnel → ISP, only-inside
+→ WireGuard or the server, DNS alone → unbound, TTFB alone → the site or CF edge.
+
+Gotchas worth remembering:
+- **Peer rate direction is inverted in `wg dump`.** `rx` is what the server
+  received *from* the peer — the device's **upload**; `tx` is its download.
+- **A random subdomain does not measure DNS recursion.** `aggressive-nsec: yes`
+  lets unbound synthesise NXDOMAIN from cache in ~3 ms without a packet leaving.
+  Both probes rotate over real domains instead.
+- **The Mac agent cannot run from `~/Documents`.** macOS TCC denies launchd
+  agents there (`Operation not permitted`), so the installer copies the script to
+  `~/Library/Application Support/vpn-probe/` and injects `SERVERURL`/`PEERDNS`/
+  `INTERNAL_SUBNET` from `.env` into the plist as env vars.
+- Cron holds a `flock` for ~50 s of every minute; a manual run during that window
+  exits silently rather than double-writing.
+
+Privacy: peer public keys are never written, and endpoints are masked to /24 —
+enough to see a device roam between networks, not enough to be a location log.
+
 ## Firewall Rules (Host)
 
 After CF Tunnel migration — only two inbound ports. Actual `ufw status` as verified
@@ -131,4 +211,5 @@ Consequences for any future work:
 - Always use `docker compose config` to validate before deploying
 - Keep WireGuard private keys ONLY in .env or wg0.conf (both gitignored)
 - Cloudflare Tunnel token is a secret — treat like a private key. If leaked, rotate by deleting+recreating the tunnel in CF dashboard.
-- CF Access policy must remain restricted to `/admin` only; opening it wider breaks Bitwarden Chrome extension and mobile clients (they cannot navigate the email-OTP browser flow).
+- CF Access policy must remain restricted to `/admin` only; opening it wider breaks Bitwarden Chrome extension and mobile clients (they cannot navigate the email-OTP browser flow). The same reasoning is why the VPN-only restriction is a WAF `Block` rule rather than a challenge or a zone-wide Access app.
+- The WAF rule hardcodes `157.230.98.224`. Anything that changes the droplet's public address (rebuild, floating IP) must update the rule in the same maintenance window, or access is lost from the VPN too.

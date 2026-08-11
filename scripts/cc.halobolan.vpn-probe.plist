@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>cc.halobolan.vpn-probe</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- /usr/bin/python3 on purpose: the Homebrew one moves on every upgrade. -->
+        <string>/usr/bin/python3</string>
+        <string>__SCRIPT__</string>
+    </array>
+
+    <!-- Injected at install time from the repo .env — no addresses live in this file.
+         Passed as env vars because the agent cannot read .env: it sits under
+         ~/Documents, which macOS TCC hides from launchd agents. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SERVER_IP</key>
+        <string>__SERVER_IP__</string>
+        <key>DNS_ADDR</key>
+        <string>__DNS_ADDR__</string>
+        <key>TUNNEL_SUBNET</key>
+        <string>__TUNNEL_SUBNET__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>Nice</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__LOGDIR__/probe.out</string>
+    <key>StandardErrorPath</key>
+    <string>__LOGDIR__/probe.err</string>
+</dict>
+</plist>
