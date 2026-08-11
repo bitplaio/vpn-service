@@ -95,11 +95,22 @@ PING_LOSS = re.compile(r"([\d.]+)% packet loss")
 PING_RTT = re.compile(r"= [\d.]+/([\d.]+)/[\d.]+/([\d.]+) ms")
 
 
-def ping(target, count=5):
+def ping(target, count=5, boundif=None):
+    """boundif forces the packet out of a physical interface.
+
+    Required for the outside-the-tunnel leg: AllowedIPs is 0.0.0.0/0, so the
+    route to the server's own public address points at utun too (`route -n get`
+    confirms it). Without -b the leg measures the tunnel a second time and dies
+    in lockstep with it, which is exactly how it read during the peer conflict
+    on 2026-08-11 — 100% loss on both legs at once.
+    """
     if not target:
         return None
     # macOS: -W is milliseconds, -t caps the whole run in seconds.
-    cmd = ["ping", "-c", str(count), "-i", "0.2", "-W", "1500", "-t", "8", target]
+    cmd = ["ping", "-c", str(count), "-i", "0.2", "-W", "1500", "-t", "8"]
+    if boundif:
+        cmd += ["-b", boundif]
+    cmd.append(target)
     out = run(cmd, timeout=count + 8)
     loss = PING_LOSS.search(out)
     rtt = PING_RTT.search(out)
@@ -292,8 +303,8 @@ def main():
             rec["gap_s"] = now - prev_ts
         prev_ts = now
 
-        rec["lan"] = ping(router, count=5) if router else None
-        rec["direct"] = ping(SERVER_IP, count=5)
+        rec["lan"] = ping(router, count=5, boundif=iface) if router else None
+        rec["direct"] = ping(SERVER_IP, count=5, boundif=iface)
         rec["tunnel"] = ping(TUNNEL_GW, count=5) if tun else None
 
         if tun:

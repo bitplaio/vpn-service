@@ -83,8 +83,52 @@ docker exec wireguard wg show wg0 latest-handshakes
 docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
 ```
 
-Peers are added by raising `PEERS` in `.env` and recreating the container — the
-linuxserver image regenerates configs itself. There is no `add-peer.sh`.
+### Peers — one key per device, never shared
+
+| Tunnel IP | Key prefix | Device | Origin |
+|-----------|-----------|--------|--------|
+| 10.13.13.2 | `YrIYfP` | Mac | peer1, image-generated |
+| 10.13.13.3 | `SWtWeb` | third client | peer2, image-generated |
+| 10.13.13.4 | `Ci8ecg` | phone | `peer_phone`, added by hand 2026-08-11 |
+
+**A key must never be used by two devices.** WireGuard tracks exactly one
+endpoint per public key — the source of the last packet received. Two devices
+sharing a key take turns overwriting it, and all return traffic follows the
+latest writer, so each device loses whatever arrives during the other's turn.
+Symptom: ping shows 100% loss while HTTP still completes, alternating on the
+period of the peers' keepalive. That is what "everything lags" turned out to be
+on 2026-08-11 — the phone and the Mac were both on `YrIYfP`/10.13.13.2.
+
+### Adding a peer without downtime
+
+Raising `PEERS` and recreating the container works but drops the tunnel, and SSH
+only arrives through it. `wg set` is additive, applies instantly and cannot
+disturb existing peers:
+
+```bash
+# inside the container; keys never leave it
+docker exec wireguard sh -c 'umask 077 && mkdir -p /config/peer_X && cd /config/peer_X && \
+  wg genkey | tee privatekey | wg pubkey > publickey && wg genpsk > presharedkey'
+docker exec wireguard sh -c 'wg set wg0 peer "$(cat /config/peer_X/publickey)" \
+  preshared-key /config/peer_X/presharedkey allowed-ips 10.13.13.N/32'
+# then append the same [Peer] block to /config/wg_confs/wg0.conf so a restart keeps it,
+# and confirm the file still parses:
+docker exec wireguard wg-quick strip wg0 > /dev/null && echo ok
+```
+
+Hand the config to the device as a QR **from your own terminal**, never through
+a tool transcript — the file contains the device's private key:
+
+```bash
+ssh vpn 'docker exec wireguard sh -c "qrencode -t ansiutf8 < /config/peer_phone/peer_phone.conf"'
+```
+
+**Caveat:** a hand-added peer lives in `wg0.conf` only. Changing `PEERS` re-renders
+that file from `/config/templates/` and would silently drop it — re-add it in the
+same maintenance window.
+
+Peers are otherwise added by raising `PEERS` in `.env` and recreating the container —
+the linuxserver image regenerates configs itself. There is no `add-peer.sh`.
 Note that **any** change to `PEERS` re-renders configs from
 `/config/templates/{server,peer}.conf`, wiping hand edits to the live files;
 MTU and MSS-clamp are already mirrored into those templates.
