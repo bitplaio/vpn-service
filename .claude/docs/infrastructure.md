@@ -90,6 +90,24 @@ docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
 | 10.13.13.2 | `YrIYfP` | Mac | peer1, image-generated |
 | 10.13.13.3 | `SWtWeb` | third client | peer2, image-generated |
 | 10.13.13.4 | `Ci8ecg` | phone | `peer_phone`, added by hand 2026-08-11 |
+| 10.13.13.5 | `uK+qqF` | hermes agent | `peer_hermes`, 2026-08-13 |
+| 10.13.13.6 | `MwEpOs` | cashmonster prod | `peer_cashmonster_prod`, 2026-08-14 |
+| 10.13.13.7 | `tZvyWr` | bitplay prod | `peer_bitplay_prod`, 2026-08-15 |
+| 10.13.13.8 | `LD/R9A` | bitplay frontend prod | `peer_bitplay_frontend_prod`, 2026-08-15 |
+| 10.13.13.9 | — | *free* | was `bitplay_legacy_shared`, revoked 2026-08-15 |
+| 10.13.13.10 | `sVtPAJ` | small projects prod | `peer_small_projects_prod`, 2026-08-15 |
+| 10.13.13.11 | `W9gM1k` | bitplay crm prod | `peer_bitplay_crm_prod`, 2026-08-15 |
+| 10.13.13.12 | `4KqnSK` | bitplay stage | `peer_bitplay_stage`, 2026-08-15 |
+| 10.13.13.13 | `Laoemj` | offers prod | `peer_offers_prod`, 2026-08-15 |
+| 10.13.13.14 | `EJVR0A` | ermin, Windows | `peer_ermin-windows`, 2026-08-16 |
+
+Next free IP is **10.13.13.15**. `.9` is free but was a revoked shared peer — reusing
+it makes telemetry and old logs ambiguous, so allocate upward instead.
+
+**This table drifts.** Peers .5–.13 were added on the server between 2026-08-13
+and 2026-08-15 without a doc update, so it read as three peers until 2026-08-16.
+Ground truth is always `docker exec wireguard wg show wg0 allowed-ips`; check it
+before allocating an IP.
 
 **A key must never be used by two devices.** WireGuard tracks exactly one
 endpoint per public key — the source of the last packet received. Two devices
@@ -115,6 +133,11 @@ docker exec wireguard sh -c 'wg set wg0 peer "$(cat /config/peer_X/publickey)" \
 # and confirm the file still parses:
 docker exec wireguard wg-quick strip wg0 > /dev/null && echo ok
 ```
+
+Back up `wg0.conf` to `wg0.conf.bak.<UTC-timestamp>-add-<name>` before appending, and
+add the tunnel IP to `/root/vpn-server/peer-labels.conf` so telemetry names the device
+instead of printing a bare IP. Verify by diffing `wg show wg0 latest-handshakes` before
+and after — every pre-existing peer's timestamp must be unchanged.
 
 Hand the config to the device as a QR **from your own terminal**, never through
 a tool transcript — the file contains the device's private key:
