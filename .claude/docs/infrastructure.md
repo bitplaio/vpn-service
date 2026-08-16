@@ -88,7 +88,7 @@ docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
 | Tunnel IP | Key prefix | Device | Origin |
 |-----------|-----------|--------|--------|
 | 10.13.13.2 | `YrIYfP` | Mac | peer1, image-generated |
-| 10.13.13.3 | `SWtWeb` | ermin, Mac | peer2, image-generated (was "client3") |
+| 10.13.13.3 | `tfGDOY` | ermin, Mac | peer2, rotated 2026-08-16 (was `SWtWeb`) |
 | 10.13.13.4 | `Ci8ecg` | phone | `peer_phone`, added by hand 2026-08-11 |
 | 10.13.13.5 | `uK+qqF` | hermes agent | `peer_hermes`, 2026-08-13 |
 | 10.13.13.6 | `MwEpOs` | cashmonster prod | `peer_cashmonster_prod`, 2026-08-14 |
@@ -148,6 +148,17 @@ a tool transcript — the file contains the device's private key:
 ```bash
 ssh vpn 'docker exec wireguard sh -c "qrencode -t ansiutf8 < /config/peer_phone/peer_phone.conf"'
 ```
+
+### Rotating a peer's keys
+
+Same shape as adding one, plus a revoke. `wg set wg0 peer <OLDPUB> remove` then
+`wg set wg0 peer <NEWPUB> ...` — the tunnel IP, its route and any `tc` filter are
+keyed on the IP, not the public key, so keeping the IP keeps all three intact
+(verified 2026-08-16 on 10.13.13.3). Guard the script on handshake age so it
+refuses to cut a live session, and remember the image-generated peers name their
+files `publickey-peerN`, not `publickey` — the hand-added ones use the short form.
+Afterwards delete the stale `peerN.conf.bak.*` and regenerate `peerN.png`: both
+still carry the revoked private key.
 
 **Caveat:** a hand-added peer lives in `wg0.conf` only. Changing `PEERS` re-renders
 that file from `/config/templates/` and would silently drop it — re-add it in the
