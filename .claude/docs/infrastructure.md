@@ -88,7 +88,7 @@ docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
 | Tunnel IP | Key prefix | Device | Origin |
 |-----------|-----------|--------|--------|
 | 10.13.13.2 | `YrIYfP` | Mac | peer1, image-generated |
-| 10.13.13.3 | `SWtWeb` | third client | peer2, image-generated |
+| 10.13.13.3 | `SWtWeb` | ermin, Mac | peer2, image-generated (was "client3") |
 | 10.13.13.4 | `Ci8ecg` | phone | `peer_phone`, added by hand 2026-08-11 |
 | 10.13.13.5 | `uK+qqF` | hermes agent | `peer_hermes`, 2026-08-13 |
 | 10.13.13.6 | `MwEpOs` | cashmonster prod | `peer_cashmonster_prod`, 2026-08-14 |
@@ -100,6 +100,9 @@ docker exec wireguard wg syncconf wg0 /config/wg_confs/wg0.conf
 | 10.13.13.12 | `4KqnSK` | bitplay stage | `peer_bitplay_stage`, 2026-08-15 |
 | 10.13.13.13 | `Laoemj` | offers prod | `peer_offers_prod`, 2026-08-15 |
 | 10.13.13.14 | `EJVR0A` | ermin, Windows | `peer_ermin-windows`, 2026-08-16 |
+
+Ermin has two peers — `.3` (Mac, the heavy downloader, shaped to 100 Mbit) and
+`.14` (Windows). `peer-labels.conf` names them `ermin-mac` / `ermin-windows`.
 
 Next free IP is **10.13.13.15**. `.9` is free but was a revoked shared peer — reusing
 it makes telemetry and old logs ambiguous, so allocate upward instead.
